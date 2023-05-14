@@ -27,16 +27,6 @@ using namespace chrono;
 
 int main(int, char **)
 {
-	// сокет
-	int sock = ::socket(PF_INET, SOCK_STREAM, 0);
-	ASSERT(sock);
-
-	sockaddr_in addr = {AF_INET, htons(49002), htonl(INADDR_LOOPBACK)};
-
-	// подключение
-	int res = ::connect(sock, (sockaddr *)&addr, sizeof(addr));
-	ASSERT(res);
-
 	// остановка мониторинга
 	bool stop = false;
 
@@ -49,39 +39,65 @@ int main(int, char **)
 
 		while (!stop)
 		{
-			pollfd fds[1] = { { sock, POLLRDHUP } };
-			res = ::poll(fds, 1, 100);
-			ASSERT(res);
+			// сокет
+			int sock = ::socket(PF_INET, SOCK_STREAM, 0);
+			ASSERT(sock);
 
-			if (res == 1)
+			// адрес сервера
+			sockaddr_in addr = {AF_INET, htons(49002), htonl(INADDR_LOOPBACK)};
+
+			// подключение
+			int res = ::connect(sock, (sockaddr *)&addr, sizeof(addr));
+			if (res == 0)
 			{
-				if (fds[0].revents & (POLLHUP | POLLRDHUP))
+				if (!conn)
 				{
-					if (conn)
-					{
-						conn = false;
-						cout << "Disconnected!" << endl;
+					conn = true;
+					cout << "Connected!" << endl;
+				}
 
-	// прерывание обмена
-	res = ::shutdown(sock, SHUT_RDWR);
-	ASSERT(res);
+				while (!stop)
+				{
+					// контролируемый дескриптор
+					pollfd fds = { sock, POLLRDHUP };
+					
+					res = ::poll(&fds, 1, 100);
+					ASSERT(res);
 
-	// очистка
-	res = ::close(sock);
-	ASSERT(res);
-					}
-					else
+					if (res == 1)
 					{
-						conn = true;
-						cout << "Connected!" << endl;
+						if (fds.revents & POLLRDHUP)
+						{
+							if (conn)
+							{
+								conn = false;
+								cout << "Disconnected!" << endl;
+
+								// прерывание обмена
+								res = ::shutdown(sock, SHUT_RDWR);
+								ASSERT(res);
+
+								// очистка
+								res = ::close(sock);
+								ASSERT(res);
+								break;
+							}
+						}
 					}
 				}
 			}
-
-			//this_thread::sleep_for(milliseconds(100));
+			else
+			{
+				if (errno != ECONNREFUSED)
+				{
+					ASSERT(res);
+				}
+				
+				this_thread::sleep_for(milliseconds(500));
+			}
 		} });
 
-	cout << "Press ENTER to disconnect..." << endl;
+	cout << "Press ENTER to exit..." << endl;
 
 	char c;
 	cin >> noskipws >> c;
